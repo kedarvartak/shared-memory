@@ -1,4 +1,4 @@
-# Shared Memory MCP — Project Summary
+# Shared Memory MCP 
 
 ## Problems Solved
 
