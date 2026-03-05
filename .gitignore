@@ -4,5 +4,8 @@ dist/
 .DS_Store
 .env
 
+# Vector search cache
+.ai-context/.vector-cache.json
+
 # Don't ignore .ai-context - it's the example
 # Users can add it to their own .gitignore if needed
