@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+
+# Don't ignore .ai-context - it's the example
+# Users can add it to their own .gitignore if needed
