@@ -3,6 +3,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import path from 'path';
@@ -10,21 +14,17 @@ import { MemoryLoader } from './memory/loader.js';
 import { MemoryWriter } from './memory/writer.js';
 import { MemoryPruner } from './memory/pruner.js';
 import { MemoryStatsCollector } from './memory/stats.js';
-import { ReasoningSearch } from './memory/reasoningSearch.js';
 import { MemoryConfig } from './types.js';
-import { createLLMProvider } from './memory/llmProviders.js';
 
 export class SharedMemoryServer {
   private server: Server;
   private config: MemoryConfig;
   private loader: MemoryLoader;
   private writer: MemoryWriter;
-  private reasoningSearch: ReasoningSearch;
   private pruner: MemoryPruner;
   private stats: MemoryStatsCollector;
 
   constructor(contextPath?: string) {
-    // Default to current working directory or home/.ai-context
     const defaultPath = contextPath ||
       process.env.AI_CONTEXT_PATH ||
       path.join(process.cwd(), '.ai-context');
@@ -39,11 +39,6 @@ export class SharedMemoryServer {
 
     this.loader = new MemoryLoader(this.config);
     this.writer = new MemoryWriter(this.config);
-
-    // Initialize reasoning search with optional LLM provider
-    const llmProvider = createLLMProvider();
-    this.reasoningSearch = new ReasoningSearch(this.config, llmProvider);
-
     this.pruner = new MemoryPruner(this.config);
     this.stats = new MemoryStatsCollector(this.config);
 
@@ -55,11 +50,15 @@ export class SharedMemoryServer {
       {
         capabilities: {
           tools: {},
+          prompts: {},
+          resources: {},
         },
       }
     );
 
     this.setupToolHandlers();
+    this.setupPromptHandlers();
+    this.setupResourceHandlers();
   }
 
   private setupToolHandlers() {
@@ -78,25 +77,6 @@ export class SharedMemoryServer {
                 description: 'Optional list of topic names to load (e.g., ["auth", "api"]). If not provided, only INDEX is loaded.',
               },
             },
-          },
-        },
-        {
-          name: 'memory_search',
-          description: 'Search memory using LLM reasoning over hierarchical structure. LLM analyzes the memory tree and explains why topics are relevant. Works with natural language or specific queries.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description: 'Search query (e.g., "how do we handle authentication" or "JWT token expiry")',
-              },
-              maxTopics: {
-                type: 'number',
-                description: 'Maximum number of topics to load (default: 3)',
-                default: 3,
-              },
-            },
-            required: ['query'],
           },
         },
         {
@@ -253,32 +233,6 @@ export class SharedMemoryServer {
                     success: true,
                     loadedTopics,
                     content,
-                  }, null, 2),
-                },
-              ],
-            };
-          }
-
-          case 'memory_search': {
-            const query = args?.query as string;
-            const maxTopics = (args?.maxTopics as number) || 3;
-
-            if (!query) {
-              throw new Error('query is required');
-            }
-
-            const result = await this.reasoningSearch.search(query, maxTopics);
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    matchedTopics: result.matchedTopics,
-                    tokenCount: result.tokenCount,
-                    reasoning: result.reasoning,
-                    content: result.content,
                   }, null, 2),
                 },
               ],
@@ -466,6 +420,206 @@ export class SharedMemoryServer {
             },
           ],
           isError: true,
+        };
+      }
+    });
+  }
+
+  private setupPromptHandlers() {
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      return {
+        prompts: [
+          {
+            name: 'session-start',
+            description: 'Initialize new coding session with persistent memory',
+          },
+          {
+            name: 'save-decision',
+            description: 'Save important decisions and implementations to memory',
+            arguments: [
+              {
+                name: 'topic',
+                description: 'Topic area (auth, api, db, etc)',
+                required: true,
+              },
+              {
+                name: 'content',
+                description: 'What to remember (compact, token-efficient)',
+                required: true,
+              },
+            ],
+          },
+          {
+            name: 'periodic-save',
+            description: 'Periodic checkpoint to save conversation progress',
+          },
+        ],
+      };
+    });
+
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+
+      switch (name) {
+        case 'session-start': {
+          const index = await this.loader.loadIndex();
+          const topics = await this.loader.listTopics();
+
+          return {
+            messages: [
+              {
+                role: 'user',
+                content: {
+                  type: 'text',
+                  text: `PERSISTENT MEMORY ACTIVE
+
+INDEX:
+${index}
+
+TOPICS: ${topics.join(', ')}
+
+AUTO-SAVE TRIGGERS:
+- Decisions made → memory_append()
+- Features implemented → memory_append()
+- Bugs fixed → memory_append()
+- Important discussions → memory_append()
+
+FORMAT: compact MDL (topic: detail|detail|detail)
+CHECKPOINT: Every 50 messages, save progress`,
+                },
+              },
+            ],
+          };
+        }
+
+        case 'save-decision': {
+          const topic = args?.topic as string;
+          const content = args?.content as string;
+
+          return {
+            messages: [
+              {
+                role: 'user',
+                content: {
+                  type: 'text',
+                  text: `Save this to memory:
+
+TOPIC: ${topic}
+CONTENT: ${content}
+
+Use memory_append() to save. Use compact MDL format.`,
+                },
+              },
+            ],
+          };
+        }
+
+        case 'periodic-save': {
+          return {
+            messages: [
+              {
+                role: 'user',
+                content: {
+                  type: 'text',
+                  text: `Checkpoint: Review conversation and save important information to memory.
+
+Extract:
+- Key decisions made
+- Features implemented
+- Solutions to problems
+- Important patterns/conventions
+
+Use memory_append() for each item. Keep it compact.`,
+                },
+              },
+            ],
+          };
+        }
+
+        default:
+          throw new Error(`Unknown prompt: ${name}`);
+      }
+    });
+  }
+
+  private setupResourceHandlers() {
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      const topics = await this.loader.listTopics();
+      const resources = [
+        {
+          uri: `memory://instructions`,
+          name: 'Auto Memory Instructions',
+          description: 'System instructions for automatic memory persistence',
+          mimeType: 'text/plain',
+        },
+        {
+          uri: `memory://INDEX`,
+          name: 'Memory Index',
+          description: 'Core memory index with stack, architecture, patterns',
+          mimeType: 'text/plain',
+        },
+      ];
+
+      for (const topic of topics) {
+        resources.push({
+          uri: `memory://${topic}`,
+          name: `${topic} topic`,
+          description: `Memory about ${topic}`,
+          mimeType: 'text/plain',
+        });
+      }
+
+      return { resources };
+    });
+
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const uri = request.params.uri;
+      const match = uri.match(/^memory:\/\/(.+)$/);
+
+      if (!match) {
+        throw new Error('Invalid memory URI');
+      }
+
+      const identifier = match[1];
+
+      if (identifier === 'instructions') {
+        const fs = await import('fs/promises');
+        const instructionsPath = path.join(this.config.contextPath, 'AUTO_MEMORY_INSTRUCTIONS.txt');
+        const content = await fs.readFile(instructionsPath, 'utf-8');
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/plain',
+              text: content,
+            },
+          ],
+        };
+      } else if (identifier === 'INDEX') {
+        const content = await this.loader.loadIndex();
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/plain',
+              text: content,
+            },
+          ],
+        };
+      } else {
+        const topic = await this.loader.loadTopic(identifier);
+        if (!topic) {
+          throw new Error(`Topic not found: ${identifier}`);
+        }
+
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/plain',
+              text: topic.content,
+            },
+          ],
         };
       }
     });
