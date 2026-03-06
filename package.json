@@ -1,7 +1,7 @@
 {
   "name": "shared-memory-mcp",
-  "version": "2.0.0",
-  "description": "MCP server for token-efficient, persistent AI memory using LLM reasoning (PageIndex-inspired) across conversations and IDEs",
+  "version": "3.0.0",
+  "description": "MCP server with multi-block memory architecture for token-efficient, persistent AI memory across conversations, services, and projects",
   "main": "dist/index.js",
   "type": "module",
   "bin": {

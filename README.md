@@ -1,4 +1,6 @@
-# Shared Memory MCP 
+# Shared Memory MCP
+
+**Multi-Block Memory Architecture** — Organize memory by service/project/feature with isolated memory blocks. Scale to complex codebases with independent memory contexts.
 
 ## Problems Solved
 
@@ -112,6 +114,55 @@ TypeScript 5.3
 
 ---
 
+# Multi-Block Architecture
+
+## Organize Memory by Context
+
+Create separate memory blocks for different services, projects, or features:
+
+```
+.ai-memory/
+└── blocks/
+    ├── auth-service/
+    │   ├── INDEX.mdl
+    │   └── topics/
+    ├── frontend/
+    │   ├── INDEX.mdl
+    │   └── topics/
+    └── api-gateway/
+        ├── INDEX.mdl
+        └── topics/
+```
+
+## Workflow
+
+```typescript
+// Create blocks for different services
+memory_create_block({name: "auth-service", description: "Authentication"})
+memory_create_block({name: "frontend", description: "React app"})
+
+// Select which blocks to work with
+memory_select_blocks({blocks: ["auth-service", "frontend"]})
+
+// Load memory from specific blocks
+memory_load({block: "auth-service"})
+
+// Save to specific blocks
+memory_append({block: "auth-service", file: "INDEX.mdl", section: "PATTERNS", content: "..."})
+```
+
+## Benefits
+
+* **Isolation** — Each service/project has independent memory
+* **Scale** — Handle large codebases with many services
+* **Context Switching** — Easily switch between projects
+* **Organization** — Clear separation of concerns
+* **Flexibility** — Create/delete blocks as needed
+
+See [MCP_MULTI_BLOCK_SETUP.txt](MCP_MULTI_BLOCK_SETUP.txt) for complete documentation.
+
+---
+
 # Key Features
 
 ## Token Efficiency
@@ -168,28 +219,29 @@ shared-memory-mcp/
 │   ├── server.ts
 │   ├── types.ts
 │   └── memory/
+│       ├── blockManager.ts
+│       ├── blockContext.ts
 │       ├── loader.ts
 │       ├── writer.ts
-│       ├── search.ts
 │       ├── tokenizer.ts
 │       ├── pruner.ts
 │       └── stats.ts
-├── .ai-context/
-│   ├── INDEX.mdl
-│   ├── MDL_SPEC.md
-│   └── topics/
-│       ├── auth.mdl
-│       ├── api.mdl
-│       └── _template.mdl
+├── .ai-memory/
+│   └── blocks/
+│       ├── service-1/
+│       │   ├── block.json
+│       │   ├── INDEX.mdl
+│       │   └── topics/
+│       └── service-2/
+│           ├── block.json
+│           ├── INDEX.mdl
+│           └── topics/
 ├── dist/
 ├── README.md
-├── EXAMPLES.md
-├── MCP_CONFIG_EXAMPLES.md
-├── CONTRIBUTING.md
+├── MCP_MULTI_BLOCK_SETUP.txt
 ├── package.json
 ├── tsconfig.json
-├── setup.sh
-└── test-mcp.sh
+└── ...
 ```
 
 Total size: approximately 2,000 lines of code and 1,500 lines of documentation.
@@ -198,15 +250,23 @@ Total size: approximately 2,000 lines of code and 1,500 lines of documentation.
 
 # Tools Provided
 
-1. **memory_search** — Search by keywords and automatically load relevant topics
-2. **memory_load** — Load INDEX and specified topics
-3. **memory_update** — Update a specific line with surgical precision
-4. **memory_append** — Add entries to a section
-5. **memory_delete** — Remove lines or entire sections
-6. **memory_create_topic** — Generate a new topic from a template
-7. **memory_stats** — Retrieve token counts and memory health data
-8. **memory_prune** — Remove outdated entries automatically
-9. **memory_list_topics** — Display available memory topics
+## Block Management
+
+1. **memory_create_block** — Create new memory block for service/project
+2. **memory_list_blocks** — List all available blocks
+3. **memory_select_blocks** — Choose which blocks to work with
+4. **memory_delete_block** — Delete a memory block
+
+## Memory Operations (require `block` parameter)
+
+5. **memory_load** — Load INDEX and specified topics from a block
+6. **memory_update** — Update a specific line with surgical precision
+7. **memory_append** — Add entries to a section
+8. **memory_delete** — Remove lines or entire sections
+9. **memory_create_topic** — Generate a new topic from a template
+10. **memory_stats** — Retrieve token counts and memory health data
+11. **memory_prune** — Remove outdated entries automatically
+12. **memory_list_topics** — Display available memory topics in a block
 
 ---
 
@@ -290,8 +350,9 @@ The AI loads the shared memory and automatically applies the same error-handling
 
 # Technical Innovations
 
-1. **MDL Format** — Custom syntax optimized for token efficiency
-2. **Lazy Loading** — Load only relevant memory segments
-3. **Keyword Matching** — Lightweight topic selection mechanism
-4. **Surgical Updates** — Modify individual memory lines efficiently
-5. **Health Monitoring** — Automatic detection of memory growth issues
+1. **Multi-Block Architecture** — Organize memory by service/project with isolated contexts
+2. **MDL Format** — Custom syntax optimized for token efficiency
+3. **Lazy Loading** — Load only relevant memory segments
+4. **Block Selection** — Work with multiple blocks simultaneously
+5. **Surgical Updates** — Modify individual memory lines efficiently
+6. **Health Monitoring** — Automatic detection of memory growth issues

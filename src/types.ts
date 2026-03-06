@@ -32,7 +32,9 @@ export interface MemorySearchResult {
 }
 
 export interface MemoryConfig {
-  contextPath: string;
+  memoryRoot: string; // Root directory for all memory blocks (.ai-memory/)
+  blockName?: string; // Current block being accessed
+  contextPath: string; // Computed path to current block
   indexFile: string;
   topicsDir: string;
   maxIndexTokens: number;
