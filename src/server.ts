@@ -8,22 +8,20 @@ import {
 import path from 'path';
 import { MemoryLoader } from './memory/loader.js';
 import { MemoryWriter } from './memory/writer.js';
-import { MemorySearch } from './memory/search.js';
 import { MemoryPruner } from './memory/pruner.js';
 import { MemoryStatsCollector } from './memory/stats.js';
-import { SemanticSearch } from './memory/semanticSearch.js';
+import { ReasoningSearch } from './memory/reasoningSearch.js';
 import { MemoryConfig } from './types.js';
+import { createLLMProvider } from './memory/llmProviders.js';
 
 export class SharedMemoryServer {
   private server: Server;
   private config: MemoryConfig;
   private loader: MemoryLoader;
   private writer: MemoryWriter;
-  private search: MemorySearch;
-  private semanticSearch: SemanticSearch;
+  private reasoningSearch: ReasoningSearch;
   private pruner: MemoryPruner;
   private stats: MemoryStatsCollector;
-  private semanticInitialized: boolean = false;
 
   constructor(contextPath?: string) {
     // Default to current working directory or home/.ai-context
@@ -41,15 +39,18 @@ export class SharedMemoryServer {
 
     this.loader = new MemoryLoader(this.config);
     this.writer = new MemoryWriter(this.config);
-    this.search = new MemorySearch(this.config);
-    this.semanticSearch = new SemanticSearch(this.config);
+
+    // Initialize reasoning search with optional LLM provider
+    const llmProvider = createLLMProvider();
+    this.reasoningSearch = new ReasoningSearch(this.config, llmProvider);
+
     this.pruner = new MemoryPruner(this.config);
     this.stats = new MemoryStatsCollector(this.config);
 
     this.server = new Server(
       {
         name: 'shared-memory-mcp',
-        version: '1.0.0',
+        version: '2.0.0',
       },
       {
         capabilities: {
@@ -81,51 +82,13 @@ export class SharedMemoryServer {
         },
         {
           name: 'memory_search',
-          description: 'Search memory by keywords and automatically load relevant topics. More efficient than loading everything.',
+          description: 'Search memory using LLM reasoning over hierarchical structure. LLM analyzes the memory tree and explains why topics are relevant. Works with natural language or specific queries.',
           inputSchema: {
             type: 'object',
             properties: {
               query: {
                 type: 'string',
-                description: 'Search query with keywords (e.g., "authentication jwt tokens")',
-              },
-              maxTopics: {
-                type: 'number',
-                description: 'Maximum number of topics to load (default: 3)',
-                default: 3,
-              },
-            },
-            required: ['query'],
-          },
-        },
-        {
-          name: 'memory_search_semantic',
-          description: 'Search memory using semantic similarity (AI embeddings). Finds topics by meaning, not just keywords. Better for conceptual queries.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description: 'Search query (e.g., "how do we handle user authentication")',
-              },
-              maxTopics: {
-                type: 'number',
-                description: 'Maximum number of topics to load (default: 3)',
-                default: 3,
-              },
-            },
-            required: ['query'],
-          },
-        },
-        {
-          name: 'memory_search_hybrid',
-          description: 'Search memory using hybrid approach (70% semantic + 30% keyword). Best of both worlds for most queries.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description: 'Search query',
+                description: 'Search query (e.g., "how do we handle authentication" or "JWT token expiry")',
               },
               maxTopics: {
                 type: 'number',
@@ -257,14 +220,6 @@ export class SharedMemoryServer {
             properties: {},
           },
         },
-        {
-          name: 'memory_rebuild_index',
-          description: 'Rebuild the vector search index. Run this after adding/updating many topics.',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
       ];
 
       return { tools };
@@ -312,7 +267,7 @@ export class SharedMemoryServer {
               throw new Error('query is required');
             }
 
-            const result = await this.search.search(query, maxTopics);
+            const result = await this.reasoningSearch.search(query, maxTopics);
 
             return {
               content: [
@@ -320,73 +275,9 @@ export class SharedMemoryServer {
                   type: 'text',
                   text: JSON.stringify({
                     success: true,
-                    method: 'keyword',
                     matchedTopics: result.matchedTopics,
                     tokenCount: result.tokenCount,
-                    content: result.content,
-                  }, null, 2),
-                },
-              ],
-            };
-          }
-
-          case 'memory_search_semantic': {
-            const query = args?.query as string;
-            const maxTopics = (args?.maxTopics as number) || 3;
-
-            if (!query) {
-              throw new Error('query is required');
-            }
-
-            // Initialize semantic search on first use
-            if (!this.semanticInitialized) {
-              await this.semanticSearch.initialize();
-              this.semanticInitialized = true;
-            }
-
-            const result = await this.semanticSearch.searchSemantic(query, maxTopics);
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    method: 'semantic',
-                    matchedTopics: result.matchedTopics,
-                    tokenCount: result.tokenCount,
-                    content: result.content,
-                  }, null, 2),
-                },
-              ],
-            };
-          }
-
-          case 'memory_search_hybrid': {
-            const query = args?.query as string;
-            const maxTopics = (args?.maxTopics as number) || 3;
-
-            if (!query) {
-              throw new Error('query is required');
-            }
-
-            // Initialize semantic search on first use
-            if (!this.semanticInitialized) {
-              await this.semanticSearch.initialize();
-              this.semanticInitialized = true;
-            }
-
-            const result = await this.semanticSearch.searchHybrid(query, maxTopics);
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    method: 'hybrid',
-                    matchedTopics: result.matchedTopics,
-                    tokenCount: result.tokenCount,
+                    reasoning: result.reasoning,
                     content: result.content,
                   }, null, 2),
                 },
@@ -553,30 +444,6 @@ export class SharedMemoryServer {
                   text: JSON.stringify({
                     success: true,
                     topics,
-                  }, null, 2),
-                },
-              ],
-            };
-          }
-
-          case 'memory_rebuild_index': {
-            // Initialize if needed
-            if (!this.semanticInitialized) {
-              await this.semanticSearch.initialize();
-              this.semanticInitialized = true;
-            }
-
-            await this.semanticSearch.rebuildIndex();
-            const stats = await this.semanticSearch.getVectorStats();
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    message: 'Vector index rebuilt',
-                    stats,
                   }, null, 2),
                 },
               ],

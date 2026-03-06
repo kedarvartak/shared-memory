@@ -28,6 +28,7 @@ export interface MemorySearchResult {
   matchedTopics: string[];
   content: string;
   tokenCount: number;
+  reasoning?: string; // LLM reasoning for why topics were selected (PageIndex-style)
 }
 
 export interface MemoryConfig {
