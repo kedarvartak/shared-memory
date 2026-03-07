@@ -1,0 +1,60 @@
+# Source files (only ship compiled dist/)
+src/
+tsconfig.json
+*.ts
+!dist/**/*.d.ts
+
+# Development files
+*.log
+*.tmp
+.DS_Store
+node_modules/
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# IDE files
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+
+# Test files
+test/
+tests/
+__tests__/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation (keep essential docs, exclude drafts)
+docs/
+*.draft.md
+SESSION_START_FIX.md
+
+# Local memory (don't publish test data!)
+.ai-memory/
+
+# Build artifacts we don't need
+*.tsbuildinfo
+coverage/
+.nyc_output/
+
+# Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.npmrc
+
+# Environment files
+.env
+.env.*

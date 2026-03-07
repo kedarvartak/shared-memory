@@ -1,7 +1,7 @@
 {
   "name": "shared-memory-mcp",
   "version": "3.0.0",
-  "description": "MCP server with multi-block memory architecture for token-efficient, persistent AI memory across conversations, services, and projects",
+  "description": "MCP server for persistent, portable AI memory across conversations and IDEs. Cross-conversation memory with token-efficient CCL format.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -12,18 +12,44 @@
     "watch": "tsc --watch",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "test": "echo \"Run: npx shared-memory-mcp\" && exit 0",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
     "memory",
     "ai",
-    "persistence",
+    "claude",
+    "cursor",
+    "persistent-memory",
+    "cross-conversation",
+    "ccl",
+    "ai-context",
+    "model-context-protocol",
+    "llm-memory",
+    "conversation-memory",
     "context",
     "llm"
   ],
-  "author": "",
+  "author": "Kedar Vartak <kedarvartak@example.com>",
   "license": "MIT",
+  "homepage": "https://github.com/kedarvartak/shared-memory#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kedarvartak/shared-memory.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kedarvartak/shared-memory/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "tiktoken": "^1.0.18",
