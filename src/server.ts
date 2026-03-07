@@ -213,15 +213,16 @@ CONTEXT: client legal mandates soft deletes on ALL user tables (hard deletes for
         // ── Session Mode ─────────────────────────────────────────────────────
         {
           name: 'memory_set_mode',
-          description: `Set the session mode. MUST be called once at session start after the user picks their mode.
+          description: `Set the session mode. MUST be called once at session start after the user chooses their mode.
 
   CREATE — User wants to create a brand-new memory block. Writes are allowed.
   LOAD   — User wants to read existing memory only. All writes are BLOCKED server-side.
   EDIT   — User wants to read and update an existing memory block. All writes are allowed.
 
-After calling this tool, load the block's memory automatically:
-  - For LOAD/EDIT: call memory_load_sessions({block, filter: "recent", value: "3"})
-  - For CREATE: call memory_create_block({name, description}) then start working`,
+REQUIRED WORKFLOW after calling this tool:
+  - CREATE mode: Next, call memory_create_block({name, description})
+  - LOAD mode: Next, call memory_load_sessions({block, filter: "recent", value: "3"})
+  - EDIT mode: Next, call memory_load_sessions({block, filter: "recent", value: "3"})`,
           inputSchema: {
             type: 'object',
             properties: {
@@ -285,8 +286,8 @@ After calling this tool, load the block's memory automatically:
                     block: block || null,
                     message: modeDescriptions[mode],
                     nextStep: mode === 'create'
-                      ? `Call memory_create_block({name: "${block || '<name>'}", description: "..."}) to create your block.`
-                      : `Call memory_load_sessions({block: "${block}", filter: "recent", value: "3"}) to load memory.`,
+                      ? `NEXT: Call memory_create_block({name: "...", description: "..."}) to create your block.`
+                      : `NEXT: Call memory_load_sessions({block: "${block}", filter: "recent", value: "3"}) to load recent sessions.`,
                   }, null, 2),
                 },
               ],
@@ -533,7 +534,11 @@ After calling this tool, load the block's memory automatically:
         prompts: [
           {
             name: 'session-start',
-            description: 'Initialize new coding session - prompts block selection and loads memory',
+            description: '⚡ START HERE - Initialize session with memory block selection (ALWAYS use this first!)',
+          },
+          {
+            name: 'session-info',
+            description: 'Show current session mode and selected blocks',
           },
         ],
       };
@@ -553,18 +558,16 @@ After calling this tool, load the block's memory automatically:
                   role: 'user',
                   content: {
                     type: 'text',
-                    text: `SHARED MEMORY SYSTEM — SESSION START
+                    text: `# SHARED MEMORY - SESSION START
 
-No memory blocks exist yet. This is your first session.
+No memory blocks exist yet. Ask the user:
 
-Ask the user:
-"I don't see any memory blocks yet. Would you like me to CREATE a new one? If so, what should it be called and what is it for?"
+"I have a shared memory system available, but no memory blocks exist yet. Would you like me to create a new memory block? If so, what should it be called and what is it for?"
 
-Once they answer, call:
-  memory_set_mode({mode: "create"})
-  memory_create_block({name: "<name>", description: "<what user said>"})
-
-Then start working normally. Save your conversation at the end using memory_save_session().`,
+After they respond, call:
+1. memory_set_mode({mode: "create"})
+2. memory_create_block({name: "<name>", description: "<description>"})
+3. Begin working`,
                   },
                 },
               ],
@@ -581,31 +584,63 @@ Then start working normally. Save your conversation at the end using memory_save
                 role: 'user',
                 content: {
                   type: 'text',
-                  text: `SHARED MEMORY SYSTEM — SESSION START
+                  text: `# SHARED MEMORY - SESSION START
 
 Available memory blocks:
 ${blockList}
 
-Before doing anything else, ask the user:
+Ask the user:
 
 "How would you like to work in this session?
 
   [1] CREATE  — Start a new memory block for a new project or feature
-  [2] LOAD    — Load an existing block to read its context (read-only, no changes saved)
-  [3] EDIT    — Load an existing block and update/improve it as we work
+  [2] LOAD    — Load an existing block to read its context (read-only)
+  [3] EDIT    — Load an existing block and update it as we work
 
-Please choose 1, 2, or 3."
+Please choose 1, 2, or 3, and for options 2 or 3, which block?"
 
-Then call memory_set_mode() based on their choice:
-  [1] CREATE → memory_set_mode({mode: "create"})
-  [2] LOAD   → memory_set_mode({mode: "load",   block: "<block-name>"})
-  [3] EDIT   → memory_set_mode({mode: "edit",   block: "<block-name>"})
+After they respond:
+- CREATE: memory_set_mode({mode: "create"}) → memory_create_block()
+- LOAD: memory_set_mode({mode: "load", block: "..."}) → memory_load_sessions({block: "...", filter: "recent", value: "3"})
+- EDIT: memory_set_mode({mode: "edit", block: "..."}) → memory_load_sessions({block: "...", filter: "recent", value: "3"})`,
+                },
+              },
+            ],
+          };
+        }
 
-For LOAD and EDIT: after calling memory_set_mode(), immediately load memory:
-  memory_load_sessions({block: "<block-name>", filter: "recent", value: "3"})
+        case 'session-info': {
+          const mode = this.blockManager.getSessionMode();
+          const selected = this.blockManager.getSelectedBlocks();
+          const blocks = await this.blockManager.listBlocks();
 
-For EDIT: at end of session, call memory_save_session() with the CCL-compressed conversation.
-For LOAD: DO NOT call any write tools — server will reject them.`,
+          const modeDescriptions = {
+            create: 'CREATE mode - You can create new blocks and write freely',
+            load: ' LOAD mode - Read-only access, no writes allowed',
+            edit: ' EDIT mode - Full read-write access to existing blocks',
+            none: ' No mode set - Session not initialized',
+          };
+
+          const modeDesc = modeDescriptions[mode || 'none'];
+          const selectedInfo = selected.length > 0
+            ? `Selected blocks: ${selected.join(', ')}`
+            : 'No blocks selected';
+
+          return {
+            messages: [
+              {
+                role: 'user',
+                content: {
+                  type: 'text',
+                  text: `# SESSION STATUS
+
+${modeDesc}
+${selectedInfo}
+
+Available blocks: ${blocks.length}
+${blocks.map(b => `  • ${b.name}${b.description ? ` — ${b.description}` : ''}`).join('\n')}
+
+${!mode ? '\n  Session not initialized. Use the "session-start" prompt to begin.' : ''}`,
                 },
               },
             ],
@@ -623,6 +658,14 @@ For LOAD: DO NOT call any write tools — server will reject them.`,
       const blocks = await this.blockManager.listBlocks();
       const resources = [];
 
+      // Add session instructions resource (auto-loaded by clients)
+      resources.push({
+        uri: 'memory://session-instructions',
+        name: 'Session Start Instructions',
+        description: 'Instructions for initializing the shared memory system at session start',
+        mimeType: 'text/plain',
+      });
+
       // Add block list resource
       resources.push({
         uri: 'memory://blocks',
@@ -636,6 +679,97 @@ For LOAD: DO NOT call any write tools — server will reject them.`,
 
     this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       const uri = request.params.uri;
+
+      if (uri === 'memory://session-instructions') {
+        const blocks = await this.blockManager.listBlocks();
+
+        let instructions = '';
+
+        if (blocks.length === 0) {
+          // No blocks exist - guide to create one
+          instructions = ` STOP - SESSION START REQUIRED
+
+DO NOT call any memory tools yet.
+DO NOT call memory_load_sessions.
+DO NOT call memory_list_blocks.
+DO NOT proceed without user input.
+
+No memory blocks exist yet. This is a fresh start.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REQUIRED ACTION - ASK THE USER FIRST:
+
+Ask them:
+"I have a shared memory system available, but no memory blocks exist yet. Would you like me to create a new memory block? If so, what should it be called and what is it for?"
+
+WAIT for their response. DO NOT call any tools until they answer.
+
+After they respond:
+1. Call memory_set_mode({mode: "create"})
+2. Call memory_create_block({name: "<user's chosen name>", description: "<user's description>"})
+3. Begin working and save important decisions using memory_save_session() at the end`;
+        } else {
+          // Blocks exist - guide to select mode
+          const blockList = blocks
+            .map(b => `  • ${b.name}${b.description ? ` — ${b.description}` : ''}${b.updated ? ` (last updated: ${b.updated})` : ''}`)
+            .join('\n');
+
+          instructions = ` STOP - SESSION START REQUIRED
+
+DO NOT call memory_load_sessions yet.
+DO NOT call memory_set_mode yet.
+DO NOT auto-select a mode.
+DO NOT proceed without user input.
+
+Available memory blocks:
+${blockList}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REQUIRED ACTION - ASK THE USER FIRST:
+
+Ask them:
+"I have a shared memory system with existing blocks. How would you like to work in this session?
+
+  [1] CREATE  — Start a new memory block for a new project or feature
+  [2] LOAD    — Load an existing block to read its context (read-only, no changes saved)
+  [3] EDIT    — Load an existing block and update/improve it as we work
+
+Please choose 1, 2, or 3, and for options 2 or 3, tell me which block you'd like to work with."
+
+WAIT for their response. DO NOT call any tools until they answer.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WORKFLOW AFTER USER RESPONDS:
+
+Option 1 - CREATE:
+1. Call memory_set_mode({mode: "create"})
+2. Call memory_create_block({name: "<name>", description: "<description>"})
+3. Work normally, save session at end
+
+Option 2 - LOAD (Read-Only):
+1. Call memory_set_mode({mode: "load", block: "<block-name>"})
+2. Call memory_load_sessions({block: "<block-name>", filter: "recent", value: "3"})
+3. Work with memory, but ALL writes will be rejected by server
+
+Option 3 - EDIT (Read-Write):
+1. Call memory_set_mode({mode: "edit", block: "<block-name>"})
+2. Call memory_load_sessions({block: "<block-name>", filter: "recent", value: "3"})
+3. Work normally, save session using memory_save_session() at end`;
+        }
+
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: 'text/plain',
+              text: instructions,
+            },
+          ],
+        };
+      }
 
       if (uri === 'memory://blocks') {
         const blocks = await this.blockManager.listBlocks();
