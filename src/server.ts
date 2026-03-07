@@ -55,6 +55,20 @@ export class SharedMemoryServer {
     return this.blockContexts.get(blockName)!;
   }
 
+  /**
+   * Throw if the current session mode is LOAD (read-only).
+   * Called at the top of every write tool handler.
+   */
+  private assertWriteAccess(): void {
+    const mode = this.blockManager.getSessionMode();
+    if (mode === 'load') {
+      throw new Error(
+        'READ-ONLY: This session was started in LOAD mode. No writes are permitted. ' +
+        'Start a new session and choose EDIT to make changes.'
+      );
+    }
+  }
+
   private setupToolHandlers() {
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -287,6 +301,115 @@ export class SharedMemoryServer {
             required: ['block'],
           },
         },
+        // ── CCL Session Log Tools ───────────────────────────────────────────
+        {
+          name: 'memory_save_session',
+          description: `Save a compressed conversation log (CCL) for this session. Call this at the end of every session or after major decisions. Write content using CCL notation — DO NOT save things derivable from reading code. ONLY save what cannot be recovered without this conversation:
+
+CCL NOTATION:
+✓ decided/implemented [over: rejected-alt | why: reason]
+✗ tried but rejected [why: reason | fix: what-replaced-it]
+! discovered gotcha / non-obvious bug / surprise fact
+? open / unresolved / deferred [context: why deferred]
+> code written or file changed → path/to/file.ts:line
+Q: question that had a non-obvious answer
+A: the answer / resolution
+CONTEXT: external constraint shaping code (legal, client, ops, team)
+
+EXAMPLE:
+✓ Redis for session cache [over: PG session store | why: lock contention @ 1k rps]
+✗ Redis pub/sub for jobs [why: mem leak >10k jobs/hr | fix: BullMQ]
+! JWT stored as ms not s → caused all refresh 401s
+! AWS SES drops silently above 14/sec (docs say 14/min — wrong)
+? rate limiting strategy → deferred Q2 [team split on approach]
+> added redisClient wrapper → src/redis/client.ts
+Q: why does CORS block OPTIONS?
+A: cors() middleware must come before auth guard
+CONTEXT: client legal mandates soft deletes on ALL user tables (hard deletes forbidden by contract)`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              block: {
+                type: 'string',
+                description: 'Block name to save the session under',
+              },
+              topic: {
+                type: 'string',
+                description: 'Short description of what this session covered (e.g. "JWT auth & Redis sessions")',
+              },
+              content: {
+                type: 'string',
+                description: 'The CCL-formatted session content using the notation described above',
+              },
+            },
+            required: ['block', 'topic', 'content'],
+          },
+        },
+        {
+          name: 'memory_load_sessions',
+          description: 'Load compressed conversation logs (CCL) from previous sessions. Use this to recall reasoning, rejected alternatives, gotchas, and constraints that cannot be recovered from code.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              block: {
+                type: 'string',
+                description: 'Block name',
+              },
+              filter: {
+                type: 'string',
+                enum: ['recent', 'topic', 'date', 'gotchas', 'open', 'rejections', 'constraints'],
+                description: 'How to filter sessions. "recent" = last N sessions. "topic" = by topic keyword. "date" = by date. "gotchas" = sessions with discovered surprises. "open" = sessions with unresolved questions. "rejections" = sessions with rejected alternatives. "constraints" = sessions with external constraints.',
+              },
+              value: {
+                type: 'string',
+                description: 'Value for the filter. For "recent": number of sessions (e.g. "3"). For "topic": keyword. For "date": YYYY-MM-DD.',
+              },
+            },
+            required: ['block', 'filter'],
+          },
+        },
+        {
+          name: 'memory_list_sessions',
+          description: 'List all saved CCL session logs for a block, with metadata (date, topic, token count, flags for gotchas/rejections/open questions). Use this to decide which sessions to load.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              block: {
+                type: 'string',
+                description: 'Block name',
+              },
+            },
+            required: ['block'],
+          },
+        },
+        // ── Session Mode ─────────────────────────────────────────────────────
+        {
+          name: 'memory_set_mode',
+          description: `Set the session mode. MUST be called once at session start after the user picks their mode.
+
+  CREATE — User wants to create a brand-new memory block. Writes are allowed.
+  LOAD   — User wants to read existing memory only. All writes are BLOCKED server-side.
+  EDIT   — User wants to read and update an existing memory block. All writes are allowed.
+
+After calling this tool, load the block's memory automatically:
+  - For LOAD/EDIT: call memory_load({block}) and memory_load_sessions({block, filter: "recent", value: "3"})
+  - For CREATE: call memory_create_block({name, description}) then start working`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              mode: {
+                type: 'string',
+                enum: ['create', 'load', 'edit'],
+                description: 'create = new block, load = read-only, edit = read+write existing',
+              },
+              block: {
+                type: 'string',
+                description: 'Block name (required for load and edit modes)',
+              },
+            },
+            required: ['mode'],
+          },
+        },
       ];
 
       return { tools };
@@ -298,6 +421,50 @@ export class SharedMemoryServer {
         const { name, arguments: args } = request.params;
 
         switch (name) {
+          // ── Session Mode Handler ───────────────────────────────────────────
+
+          case 'memory_set_mode': {
+            const mode = args?.mode as 'create' | 'load' | 'edit';
+            const block = args?.block as string | undefined;
+
+            if (!mode) throw new Error('mode is required');
+            if ((mode === 'load' || mode === 'edit') && !block) {
+              throw new Error(`block is required for mode="${mode}"`);
+            }
+
+            // Validate block exists for load/edit
+            if (block) {
+              const existing = await this.blockManager.getBlock(block);
+              if (!existing) throw new Error(`Memory block "${block}" not found. Use memory_list_blocks() to see available blocks.`);
+            }
+
+            this.blockManager.setSessionMode(mode);
+            if (block) this.blockManager.selectBlocks([block]);
+
+            const modeDescriptions = {
+              create: 'CREATE mode — you may create a new block and write freely.',
+              load:   'LOAD mode — memory is available READ-ONLY. No writes will be accepted.',
+              edit:   'EDIT mode — memory is loaded and you may read and write freely.',
+            };
+
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    mode,
+                    block: block || null,
+                    message: modeDescriptions[mode],
+                    nextStep: mode === 'create'
+                      ? `Call memory_create_block({name: "${block || '<name>'}", description: "..."}) to create your block.`
+                      : `Call memory_load({block: "${block}"}) and memory_load_sessions({block: "${block}", filter: "recent", value: "3"}) to load memory.`,
+                  }, null, 2),
+                },
+              ],
+            };
+          }
+
           case 'memory_create_block': {
             const blockName = args?.name as string;
             const description = args?.description as string | undefined;
@@ -431,6 +598,7 @@ export class SharedMemoryServer {
           }
 
           case 'memory_update': {
+            this.assertWriteAccess();
             const block = args?.block as string;
             const file = args?.file as string;
             const line = args?.line as number;
@@ -457,6 +625,7 @@ export class SharedMemoryServer {
           }
 
           case 'memory_append': {
+            this.assertWriteAccess();
             const block = args?.block as string;
             const file = args?.file as string;
             const section = args?.section as string;
@@ -483,6 +652,7 @@ export class SharedMemoryServer {
           }
 
           case 'memory_delete': {
+            this.assertWriteAccess();
             const block = args?.block as string;
             const file = args?.file as string;
             const line = args?.line as number | undefined;
@@ -526,6 +696,7 @@ export class SharedMemoryServer {
           }
 
           case 'memory_create_topic': {
+            this.assertWriteAccess();
             const block = args?.block as string;
             const topicName = args?.name as string;
             const keywords = args?.keywords as string[];
@@ -628,6 +799,123 @@ export class SharedMemoryServer {
             };
           }
 
+          // ── CCL Session Log Handlers ────────────────────────────────────────
+
+          case 'memory_save_session': {
+            this.assertWriteAccess();
+            const block = args?.block as string;
+            const topic = args?.topic as string;
+            const content = args?.content as string;
+
+            if (!block || !topic || !content) {
+              throw new Error('block, topic, and content are required');
+            }
+
+            const ctx = this.getBlockContext(block);
+            const meta = await ctx.cclWriter.saveSession(topic, content);
+
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    message: `Session saved: ${meta.file}`,
+                    meta,
+                  }, null, 2),
+                },
+              ],
+            };
+          }
+
+          case 'memory_load_sessions': {
+            const block = args?.block as string;
+            const filter = args?.filter as string;
+            const value = args?.value as string | undefined;
+
+            if (!block || !filter) {
+              throw new Error('block and filter are required');
+            }
+
+            const ctx = this.getBlockContext(block);
+            let result;
+
+            switch (filter) {
+              case 'recent':
+                result = await ctx.cclLoader.loadRecent(value ? parseInt(value, 10) : 3);
+                break;
+              case 'topic':
+                if (!value) throw new Error('value (topic keyword) is required for filter=topic');
+                result = await ctx.cclLoader.loadByTopic(value);
+                break;
+              case 'date':
+                if (!value) throw new Error('value (YYYY-MM-DD) is required for filter=date');
+                result = await ctx.cclLoader.loadByDate(value);
+                break;
+              case 'gotchas':
+                result = await ctx.cclLoader.loadGotchas();
+                break;
+              case 'open':
+                result = await ctx.cclLoader.loadOpen();
+                break;
+              case 'rejections':
+                result = await ctx.cclLoader.loadRejections();
+                break;
+              case 'constraints':
+                result = await ctx.cclLoader.loadConstraints();
+                break;
+              default:
+                throw new Error(`Unknown filter: ${filter}. Use: recent, topic, date, gotchas, open, rejections, constraints`);
+            }
+
+            // Build a compact readable output: concatenate all session contents
+            const combinedContent = result.sessions
+              .map(s => s.content)
+              .join('\n\n─────────────────────────────────────\n\n');
+
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    block,
+                    filter,
+                    sessionsLoaded: result.sessions.length,
+                    totalTokens: result.totalTokens,
+                    content: combinedContent,
+                  }, null, 2),
+                },
+              ],
+            };
+          }
+
+          case 'memory_list_sessions': {
+            const block = args?.block as string;
+
+            if (!block) {
+              throw new Error('block is required');
+            }
+
+            const ctx = this.getBlockContext(block);
+            const sessions = await ctx.cclLoader.listSessions();
+            const summary = await ctx.cclLoader.getSummary();
+
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    success: true,
+                    block,
+                    summary,
+                    sessions,
+                  }, null, 2),
+                },
+              ],
+            };
+          }
+
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -700,23 +988,27 @@ export class SharedMemoryServer {
                   role: 'user',
                   content: {
                     type: 'text',
-                    text: `MULTI-BLOCK MEMORY SYSTEM ACTIVE
+                    text: `SHARED MEMORY SYSTEM — SESSION START
 
-No memory blocks exist yet. Use memory_create_block() to create your first block.
+No memory blocks exist yet. This is your first session.
 
-Examples:
-- memory_create_block({name: "auth-service", description: "Authentication microservice"})
-- memory_create_block({name: "frontend", description: "React frontend app"})
-- memory_create_block({name: "api-gateway", description: "API gateway service"})
+Ask the user:
+"I don't see any memory blocks yet. Would you like me to CREATE a new one? If so, what should it be called and what is it for?"
 
-Each block has its own INDEX and topics, allowing you to organize memory by service/project/feature.`,
+Once they answer, call:
+  memory_set_mode({mode: "create"})
+  memory_create_block({name: "<name>", description: "<what user said>"})
+
+Then start working normally. Save decisions using memory_append() and memory_save_session() at end.`,
                   },
                 },
               ],
             };
           }
 
-          const blockList = blocks.map(b => `- ${b.name}${b.description ? `: ${b.description}` : ''}`).join('\n');
+          const blockList = blocks
+            .map(b => `  • ${b.name}${b.description ? ` — ${b.description}` : ''}${b.updated ? ` (last updated: ${b.updated})` : ''}`)
+            .join('\n');
 
           return {
             messages: [
@@ -724,25 +1016,32 @@ Each block has its own INDEX and topics, allowing you to organize memory by serv
                 role: 'user',
                 content: {
                   type: 'text',
-                  text: `MULTI-BLOCK MEMORY SYSTEM ACTIVE
+                  text: `SHARED MEMORY SYSTEM — SESSION START
 
 Available memory blocks:
 ${blockList}
 
-STEP 1: SELECT BLOCKS
-Use memory_select_blocks({blocks: ["block1", "block2"]}) to choose which blocks to work with.
+Before doing anything else, ask the user:
 
-STEP 2: LOAD MEMORY
-Use memory_load({block: "block-name"}) to load INDEX and topics.
+"How would you like to work in this session?
 
-AUTO-SAVE DURING WORK:
-- Decisions made → memory_append({block, file, section, content})
-- Features implemented → memory_append()
-- Bugs fixed → memory_append()
-- Important discussions → memory_append()
+  [1] CREATE  — Start a new memory block for a new project or feature
+  [2] LOAD    — Load an existing block to read its context (read-only, no changes saved)
+  [3] EDIT    — Load an existing block and update/improve it as we work
 
-FORMAT: compact MDL (topic: detail|detail|detail)
-CHECKPOINT: Every 50 messages, save progress`,
+Please choose 1, 2, or 3."
+
+Then call memory_set_mode() based on their choice:
+  [1] CREATE → memory_set_mode({mode: "create"})
+  [2] LOAD   → memory_set_mode({mode: "load",   block: "<block-name>"})
+  [3] EDIT   → memory_set_mode({mode: "edit",   block: "<block-name>"})
+
+For LOAD and EDIT: after calling memory_set_mode(), immediately load memory:
+  memory_load({block: "<block-name>"})
+  memory_load_sessions({block: "<block-name>", filter: "recent", value: "3"})
+
+For EDIT: at end of session, call memory_save_session() with the CCL-compressed conversation.
+For LOAD: DO NOT call any write tools — server will reject them.`,
                 },
               },
             ],

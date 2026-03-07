@@ -9,12 +9,23 @@ export interface MemoryBlock {
   updated?: string;
 }
 
+export type SessionMode = 'create' | 'load' | 'edit';
+
 export class BlockManager {
   private memoryRoot: string;
   private selectedBlocks: Set<string> = new Set();
+  private sessionMode: SessionMode | null = null;
 
   constructor(memoryRoot: string) {
     this.memoryRoot = memoryRoot;
+  }
+
+  setSessionMode(mode: SessionMode): void {
+    this.sessionMode = mode;
+  }
+
+  getSessionMode(): SessionMode | null {
+    return this.sessionMode;
   }
 
   /**
@@ -42,6 +53,7 @@ export class BlockManager {
     // Create block directory structure
     await fs.mkdir(blockPath, { recursive: true });
     await fs.mkdir(path.join(blockPath, 'topics'), { recursive: true });
+    await fs.mkdir(path.join(blockPath, 'sessions'), { recursive: true });
 
     const today = new Date().toISOString().split('T')[0];
 
