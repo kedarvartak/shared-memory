@@ -128,179 +128,7 @@ export class SharedMemoryServer {
             required: ['name'],
           },
         },
-        {
-          name: 'memory_load',
-          description: 'Load INDEX and optionally specific topic files from a memory block.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              block: {
-                type: 'string',
-                description: 'Block name to load from',
-              },
-              topics: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Optional list of topic names to load',
-              },
-            },
-            required: ['block'],
-          },
-        },
-        {
-          name: 'memory_update',
-          description: 'Update a specific line in a memory file within a block.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              block: {
-                type: 'string',
-                description: 'Block name',
-              },
-              file: {
-                type: 'string',
-                description: 'File name (e.g., "INDEX.mdl" or "auth")',
-              },
-              line: {
-                type: 'number',
-                description: 'Line number to update (1-indexed)',
-              },
-              content: {
-                type: 'string',
-                description: 'New content for the line',
-              },
-            },
-            required: ['block', 'file', 'line', 'content'],
-          },
-        },
-        {
-          name: 'memory_append',
-          description: 'Append content to a specific section in a memory file within a block.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              block: {
-                type: 'string',
-                description: 'Block name',
-              },
-              file: {
-                type: 'string',
-                description: 'File name (e.g., "INDEX.mdl" or "auth")',
-              },
-              section: {
-                type: 'string',
-                description: 'Section name (e.g., "PATTERNS", "IMPLEMENTATION")',
-              },
-              content: {
-                type: 'string',
-                description: 'Content to append',
-              },
-            },
-            required: ['block', 'file', 'section', 'content'],
-          },
-        },
-        {
-          name: 'memory_delete',
-          description: 'Delete a line or section from a memory file within a block.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              block: {
-                type: 'string',
-                description: 'Block name',
-              },
-              file: {
-                type: 'string',
-                description: 'File name (e.g., "INDEX.mdl" or "auth")',
-              },
-              line: {
-                type: 'number',
-                description: 'Line number to delete (optional, use this OR section)',
-              },
-              section: {
-                type: 'string',
-                description: 'Section name to delete (optional, use this OR line)',
-              },
-            },
-            required: ['block', 'file'],
-          },
-        },
-        {
-          name: 'memory_create_topic',
-          description: 'Create a new topic file within a memory block.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              block: {
-                type: 'string',
-                description: 'Block name',
-              },
-              name: {
-                type: 'string',
-                description: 'Topic name (e.g., "deploy", "testing")',
-              },
-              keywords: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Keywords for this topic',
-              },
-              priority: {
-                type: 'string',
-                enum: ['high', 'medium', 'low'],
-                description: 'Topic priority (default: medium)',
-                default: 'medium',
-              },
-            },
-            required: ['block', 'name', 'keywords'],
-          },
-        },
-        {
-          name: 'memory_stats',
-          description: 'Get token counts and statistics for a memory block.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              block: {
-                type: 'string',
-                description: 'Block name',
-              },
-            },
-            required: ['block'],
-          },
-        },
-        {
-          name: 'memory_prune',
-          description: 'Automatically prune old entries from the CURRENT section in a block\'s INDEX.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              block: {
-                type: 'string',
-                description: 'Block name',
-              },
-              daysToKeep: {
-                type: 'number',
-                description: 'Number of days to keep (default: 7)',
-                default: 7,
-              },
-            },
-            required: ['block'],
-          },
-        },
-        {
-          name: 'memory_list_topics',
-          description: 'List all available topic files in a memory block.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              block: {
-                type: 'string',
-                description: 'Block name',
-              },
-            },
-            required: ['block'],
-          },
-        },
+        // ── Block Management Tools ──────────────────────────────────────────
         // ── CCL Session Log Tools ───────────────────────────────────────────
         {
           name: 'memory_save_session',
@@ -561,244 +389,6 @@ After calling this tool, load the block's memory automatically:
             };
           }
 
-          case 'memory_load': {
-            const block = args?.block as string;
-            const topics = (args?.topics as string[]) || [];
-
-            if (!block) {
-              throw new Error('block is required');
-            }
-
-            const ctx = this.getBlockContext(block);
-            const index = await ctx.loader.loadIndex();
-            let content = index;
-            const loadedTopics: string[] = [];
-
-            if (topics.length > 0) {
-              const topicFiles = await ctx.loader.loadTopics(topics);
-              for (const topic of topicFiles) {
-                content += `\n\n# TOPIC: ${topic.name}\n\n${topic.content}`;
-                loadedTopics.push(topic.name);
-              }
-            }
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    block,
-                    loadedTopics,
-                    content,
-                  }, null, 2),
-                },
-              ],
-            };
-          }
-
-          case 'memory_update': {
-            this.assertWriteAccess();
-            const block = args?.block as string;
-            const file = args?.file as string;
-            const line = args?.line as number;
-            const content = args?.content as string;
-
-            if (!block || !file || !line || content === undefined) {
-              throw new Error('block, file, line, and content are required');
-            }
-
-            const ctx = this.getBlockContext(block);
-            await ctx.writer.updateLine(file, line, content);
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    message: `Updated ${block}/${file} line ${line}`,
-                  }),
-                },
-              ],
-            };
-          }
-
-          case 'memory_append': {
-            this.assertWriteAccess();
-            const block = args?.block as string;
-            const file = args?.file as string;
-            const section = args?.section as string;
-            const content = args?.content as string;
-
-            if (!block || !file || !section || !content) {
-              throw new Error('block, file, section, and content are required');
-            }
-
-            const ctx = this.getBlockContext(block);
-            await ctx.writer.appendToSection(file, section, content);
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    message: `Appended to ${block}/${file} section ${section}`,
-                  }),
-                },
-              ],
-            };
-          }
-
-          case 'memory_delete': {
-            this.assertWriteAccess();
-            const block = args?.block as string;
-            const file = args?.file as string;
-            const line = args?.line as number | undefined;
-            const section = args?.section as string | undefined;
-
-            if (!block || !file) {
-              throw new Error('block and file are required');
-            }
-
-            const ctx = this.getBlockContext(block);
-
-            if (line !== undefined) {
-              await ctx.writer.deleteLine(file, line);
-              return {
-                content: [
-                  {
-                    type: 'text',
-                    text: JSON.stringify({
-                      success: true,
-                      message: `Deleted ${block}/${file} line ${line}`,
-                    }),
-                  },
-                ],
-              };
-            } else if (section) {
-              await ctx.writer.deleteSection(file, section);
-              return {
-                content: [
-                  {
-                    type: 'text',
-                    text: JSON.stringify({
-                      success: true,
-                      message: `Deleted ${block}/${file} section ${section}`,
-                    }),
-                  },
-                ],
-              };
-            } else {
-              throw new Error('Either line or section must be provided');
-            }
-          }
-
-          case 'memory_create_topic': {
-            this.assertWriteAccess();
-            const block = args?.block as string;
-            const topicName = args?.name as string;
-            const keywords = args?.keywords as string[];
-            const priority = (args?.priority as string) || 'medium';
-
-            if (!block || !topicName || !keywords) {
-              throw new Error('block, name, and keywords are required');
-            }
-
-            const ctx = this.getBlockContext(block);
-            await ctx.writer.createTopic(topicName, keywords, priority);
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    message: `Created topic ${topicName} in block ${block}`,
-                    file: `${block}/topics/${topicName}.mdl`,
-                  }),
-                },
-              ],
-            };
-          }
-
-          case 'memory_stats': {
-            const block = args?.block as string;
-
-            if (!block) {
-              throw new Error('block is required');
-            }
-
-            const ctx = this.getBlockContext(block);
-            const stats = await ctx.stats.getStats();
-            const health = await ctx.stats.checkHealth();
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    block,
-                    stats,
-                    health,
-                  }, null, 2),
-                },
-              ],
-            };
-          }
-
-          case 'memory_prune': {
-            const block = args?.block as string;
-            const daysToKeep = (args?.daysToKeep as number) || 7;
-
-            if (!block) {
-              throw new Error('block is required');
-            }
-
-            const ctx = this.getBlockContext(block);
-            const pruned = await ctx.pruner.pruneCurrentSection(daysToKeep);
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    block,
-                    message: `Pruned ${pruned} old entries`,
-                    daysToKeep,
-                  }),
-                },
-              ],
-            };
-          }
-
-          case 'memory_list_topics': {
-            const block = args?.block as string;
-
-            if (!block) {
-              throw new Error('block is required');
-            }
-
-            const ctx = this.getBlockContext(block);
-            const topics = await ctx.loader.listTopics();
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: JSON.stringify({
-                    success: true,
-                    block,
-                    topics,
-                  }, null, 2),
-                },
-              ],
-            };
-          }
-
           // ── CCL Session Log Handlers ────────────────────────────────────────
 
           case 'memory_save_session': {
@@ -945,37 +535,12 @@ After calling this tool, load the block's memory automatically:
             name: 'session-start',
             description: 'Initialize new coding session - prompts block selection and loads memory',
           },
-          {
-            name: 'save-decision',
-            description: 'Save important decisions and implementations to memory',
-            arguments: [
-              {
-                name: 'block',
-                description: 'Which block to save to',
-                required: true,
-              },
-              {
-                name: 'topic',
-                description: 'Topic area (auth, api, db, etc)',
-                required: true,
-              },
-              {
-                name: 'content',
-                description: 'What to remember (compact, token-efficient)',
-                required: true,
-              },
-            ],
-          },
-          {
-            name: 'periodic-save',
-            description: 'Periodic checkpoint to save conversation progress',
-          },
         ],
       };
     });
 
     this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
+      const { name } = request.params;
 
       switch (name) {
         case 'session-start': {
@@ -999,7 +564,7 @@ Once they answer, call:
   memory_set_mode({mode: "create"})
   memory_create_block({name: "<name>", description: "<what user said>"})
 
-Then start working normally. Save decisions using memory_append() and memory_save_session() at end.`,
+Then start working normally. Save your conversation at the end using memory_save_session().`,
                   },
                 },
               ],
@@ -1037,61 +602,10 @@ Then call memory_set_mode() based on their choice:
   [3] EDIT   → memory_set_mode({mode: "edit",   block: "<block-name>"})
 
 For LOAD and EDIT: after calling memory_set_mode(), immediately load memory:
-  memory_load({block: "<block-name>"})
   memory_load_sessions({block: "<block-name>", filter: "recent", value: "3"})
 
 For EDIT: at end of session, call memory_save_session() with the CCL-compressed conversation.
 For LOAD: DO NOT call any write tools — server will reject them.`,
-                },
-              },
-            ],
-          };
-        }
-
-        case 'save-decision': {
-          const block = args?.block as string;
-          const topic = args?.topic as string;
-          const content = args?.content as string;
-
-          return {
-            messages: [
-              {
-                role: 'user',
-                content: {
-                  type: 'text',
-                  text: `Save this to memory:
-
-BLOCK: ${block}
-TOPIC: ${topic}
-CONTENT: ${content}
-
-Use memory_append({block: "${block}", file: "INDEX.mdl", section: "...", content: "..."}) to save. Use compact MDL format.`,
-                },
-              },
-            ],
-          };
-        }
-
-        case 'periodic-save': {
-          const selected = this.blockManager.getSelectedBlocks();
-
-          return {
-            messages: [
-              {
-                role: 'user',
-                content: {
-                  type: 'text',
-                  text: `Checkpoint: Review conversation and save important information to memory.
-
-Selected blocks: ${selected.length > 0 ? selected.join(', ') : 'none'}
-
-Extract:
-- Key decisions made
-- Features implemented
-- Solutions to problems
-- Important patterns/conventions
-
-Use memory_append() for each item, specifying the correct block. Keep it compact.`,
                 },
               },
             ],
@@ -1117,28 +631,6 @@ Use memory_append() for each item, specifying the correct block. Keep it compact
         mimeType: 'application/json',
       });
 
-      // Add resources for each block
-      for (const block of blocks) {
-        resources.push({
-          uri: `memory://${block.name}/INDEX`,
-          name: `${block.name} Index`,
-          description: `Core memory index for ${block.name}`,
-          mimeType: 'text/plain',
-        });
-
-        // Add topics for this block
-        const ctx = this.getBlockContext(block.name);
-        const topics = await ctx.loader.listTopics();
-        for (const topic of topics) {
-          resources.push({
-            uri: `memory://${block.name}/${topic}`,
-            name: `${block.name}/${topic}`,
-            description: `${topic} topic in ${block.name}`,
-            mimeType: 'text/plain',
-          });
-        }
-      }
-
       return { resources };
     });
 
@@ -1161,41 +653,7 @@ Use memory_append() for each item, specifying the correct block. Keep it compact
         };
       }
 
-      const match = uri.match(/^memory:\/\/([^/]+)\/(.+)$/);
-      if (!match) {
-        throw new Error('Invalid memory URI');
-      }
-
-      const [, blockName, identifier] = match;
-      const ctx = this.getBlockContext(blockName);
-
-      if (identifier === 'INDEX') {
-        const content = await ctx.loader.loadIndex();
-        return {
-          contents: [
-            {
-              uri,
-              mimeType: 'text/plain',
-              text: content,
-            },
-          ],
-        };
-      } else {
-        const topic = await ctx.loader.loadTopic(identifier);
-        if (!topic) {
-          throw new Error(`Topic not found: ${identifier}`);
-        }
-
-        return {
-          contents: [
-            {
-              uri,
-              mimeType: 'text/plain',
-              text: topic.content,
-            },
-          ],
-        };
-      }
+      throw new Error('Invalid memory URI or resource not found');
     });
   }
 

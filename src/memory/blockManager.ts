@@ -52,7 +52,6 @@ export class BlockManager {
 
     // Create block directory structure
     await fs.mkdir(blockPath, { recursive: true });
-    await fs.mkdir(path.join(blockPath, 'topics'), { recursive: true });
     await fs.mkdir(path.join(blockPath, 'sessions'), { recursive: true });
 
     const today = new Date().toISOString().split('T')[0];
@@ -69,40 +68,6 @@ export class BlockManager {
     await fs.writeFile(
       path.join(blockPath, 'block.json'),
       JSON.stringify(metadata, null, 2),
-      'utf-8'
-    );
-
-    // Create INDEX.mdl template
-    const indexTemplate = `# ${name} Memory Index
-# Core memory for ${description || name}
-
-@meta: block=${name} | updated=${today}
-
-## STACK
-# Technology stack, frameworks, libraries
-
-## ARCHITECTURE
-# System design, component relationships, data flow
-
-## PATTERNS
-# Code patterns, conventions, best practices
-
-## CURRENT
-# Active work, recent decisions (auto-pruned after 7 days)
-# Format: YYYY-MM-DD: brief description
-
-## DECISIONS
-# Important architectural/design decisions
-# Format: decision | reason | impact
-
-## FILES
-# Key file locations and their purposes
-# Format: path/to/file.ext | purpose
-`;
-
-    await fs.writeFile(
-      path.join(blockPath, 'INDEX.mdl'),
-      indexTemplate,
       'utf-8'
     );
 
