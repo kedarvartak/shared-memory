@@ -220,7 +220,7 @@ CONTEXT: client legal mandates soft deletes on ALL user tables (hard deletes for
   EDIT   — User wants to read and update an existing memory block. All writes are allowed.
 
 After calling this tool, load the block's memory automatically:
-  - For LOAD/EDIT: call memory_load({block}) and memory_load_sessions({block, filter: "recent", value: "3"})
+  - For LOAD/EDIT: call memory_load_sessions({block, filter: "recent", value: "3"})
   - For CREATE: call memory_create_block({name, description}) then start working`,
           inputSchema: {
             type: 'object',
@@ -286,7 +286,7 @@ After calling this tool, load the block's memory automatically:
                     message: modeDescriptions[mode],
                     nextStep: mode === 'create'
                       ? `Call memory_create_block({name: "${block || '<name>'}", description: "..."}) to create your block.`
-                      : `Call memory_load({block: "${block}"}) and memory_load_sessions({block: "${block}", filter: "recent", value: "3"}) to load memory.`,
+                      : `Call memory_load_sessions({block: "${block}", filter: "recent", value: "3"}) to load memory.`,
                   }, null, 2),
                 },
               ],
