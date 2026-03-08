@@ -19,6 +19,7 @@ The system operates in three distinct modes:
 ![CCL Architecture](https://via.placeholder.com/600x600.png?text=CCL+Architecture)
 
 Conversation data flows through a compression pipeline:
+
 1. AI conversation produces raw messages
 2. CCL Writer compresses and saves to session files
 3. Metadata index enables efficient filtering
@@ -35,31 +36,31 @@ Memory blocks provide isolated contexts for different projects, services, or fea
 
 ### Memory Persistence
 
-| Aspect | Standard Approach | Shared Memory MCP |
-|--------|------------------|-------------------|
-| Persistence mechanism | Ephemeral context window | External file-based CCL storage |
-| Session continuity | Lost between sessions | Full persistence across sessions |
-| IDE portability | Context lost on IDE switch | Shared across all MCP-compatible IDEs |
-| Token consumption | 15,000-25,000 per query | 1,200-2,000 per query |
-| Quality degradation | Begins after 1,000 messages | No degradation |
+| Aspect                | Standard Approach           | Shared Memory MCP                     |
+| --------------------- | --------------------------- | ------------------------------------- |
+| Persistence mechanism | Ephemeral context window    | External file-based CCL storage       |
+| Session continuity    | Lost between sessions       | Full persistence across sessions      |
+| IDE portability       | Context lost on IDE switch  | Shared across all MCP-compatible IDEs |
+| Token consumption     | 15,000-25,000 per query     | 1,200-2,000 per query                 |
+| Quality degradation   | Begins after 1,000 messages | No degradation                        |
 
 ### Memory Organization
 
-| Aspect | Standard Approach | Shared Memory MCP |
-|--------|------------------|-------------------|
-| Structure | Flat, chronological messages | Hierarchical blocks by project/service |
-| Context isolation | Single global context | Independent memory blocks |
-| Scalability | Limited by context window | Unlimited with lazy loading |
-| Query efficiency | Full context scan | Indexed metadata lookup |
-| Cross-project memory | None | Selective block loading |
+| Aspect               | Standard Approach            | Shared Memory MCP                      |
+| -------------------- | ---------------------------- | -------------------------------------- |
+| Structure            | Flat, chronological messages | Hierarchical blocks by project/service |
+| Context isolation    | Single global context        | Independent memory blocks              |
+| Scalability          | Limited by context window    | Unlimited with lazy loading            |
+| Query efficiency     | Full context scan            | Indexed metadata lookup                |
+| Cross-project memory | None                         | Selective block loading                |
 
 ### Format Efficiency
 
-| Format | Token Count | Compression Ratio | Example |
-|--------|-------------|-------------------|---------|
-| Natural language | 50 tokens | Baseline | "The authentication system uses JWT tokens. Access tokens expire after 15 minutes. Refresh tokens expire after 7 days. Implementation: src/auth/jwt.ts" |
-| Markdown | 35 tokens | 30% reduction | "## Auth\n- JWT tokens\n- Access: 15m\n- Refresh: 7d\n- File: `src/auth/jwt.ts`" |
-| CCL notation | 12 tokens | 76% reduction | "auth: JWT \| src/auth/jwt.ts \| tokens(15m/7d)" |
+| Format           | Token Count | Compression Ratio | Example                                                                                                                                                 |
+| ---------------- | ----------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Natural language | 50 tokens   | Baseline          | "The authentication system uses JWT tokens. Access tokens expire after 15 minutes. Refresh tokens expire after 7 days. Implementation: src/auth/jwt.ts" |
+| Markdown         | 35 tokens   | 30% reduction     | "## Auth\n- JWT tokens\n- Access: 15m\n- Refresh: 7d\n- File: `src/auth/jwt.ts`"                                                                        |
+| CCL notation     | 12 tokens   | 76% reduction     | "auth: JWT \| src/auth/jwt.ts \| tokens(15m/7d)"                                                                                                        |
 
 ## Core Features
 
@@ -106,6 +107,7 @@ CONTEXT: Mobile clients cannot reliably store HttpOnly cookies
 ```
 
 Each block maintains:
+
 - Independent session history
 - Isolated metadata index
 - Block-specific configuration
@@ -113,58 +115,92 @@ Each block maintains:
 ### Session Modes
 
 **CREATE Mode**
+
 - Initialize new conversation sessions
 - Automatic compression and metadata extraction
 - Write access enabled
 
 **LOAD Mode**
+
 - Read-only session browsing
 - Filter by date, topic, gotchas, or open questions
 - Zero modification risk
 
 **EDIT Mode**
+
 - Modify existing sessions
 - Update metadata and content
 - Maintains version history
 
 ## Installation
 
-```bash
-npm install shared-memory-mcp
-```
+### Method 1: NPX (Recommended)
 
-## Configuration
-
-### Claude Desktop
+You can run the server directly using `npx`. This ensures you are always using the latest version without manual installation.
 
 ```json
 {
   "mcpServers": {
     "shared-memory": {
-      "command": "node",
-      "args": ["/path/to/shared-memory-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "shared-memory-mcp"],
       "env": {
-        "AI_MEMORY_PATH": "/home/user/.ai-memory"
+        "AI_MEMORY_PATH": "/path/to/your/memory/directory"
       }
     }
   }
 }
 ```
 
-### VS Code / Cursor
+### Method 2: Global Installation
 
-Add to `.vscode/mcp.json`:
+Install the package globally using npm:
+
+```bash
+npm install -g shared-memory-mcp
+```
+
+After installation, determine the absolute path to the binary:
+
+```bash
+which shared-memory-mcp
+```
+
+## Configuration
+
+### Claude Code
+
+To add the server to Claude Code, execute the following command:
+
+```bash
+claude mcp add shared-memory --transport stdio -- shared-memory-mcp
+```
+
+### Cursor / VS Code
+
+1. Navigate to Settings.
+2. Select the MCP section.
+3. Add a new MCP server and provide the following configuration:
+
+**Using npx:**
 
 ```json
 {
-  "mcpServers": {
-    "shared-memory": {
-      "command": "node",
-      "args": ["./node_modules/shared-memory-mcp/dist/index.js"],
-      "env": {
-        "AI_MEMORY_PATH": "${workspaceFolder}/.ai-memory"
-      }
-    }
+  "command": "npx",
+  "args": ["-y", "shared-memory-mcp"],
+  "env": {
+    "AI_MEMORY_PATH": "/absolute/path/to/memory"
+  }
+}
+```
+
+**Using Global Binary:**
+
+```json
+{
+  "command": "shared-memory-mcp",
+  "env": {
+    "AI_MEMORY_PATH": "/absolute/path/to/memory"
   }
 }
 ```
@@ -173,21 +209,21 @@ Add to `.vscode/mcp.json`:
 
 ### Block Management
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `memory_create_block` | Create new memory block | `name`, `description?` |
-| `memory_list_blocks` | List all blocks | None |
-| `memory_select_blocks` | Set active blocks | `blocks: string[]` |
-| `memory_delete_block` | Remove block | `name` |
+| Tool                   | Description             | Parameters             |
+| ---------------------- | ----------------------- | ---------------------- |
+| `memory_create_block`  | Create new memory block | `name`, `description?` |
+| `memory_list_blocks`   | List all blocks         | None                   |
+| `memory_select_blocks` | Set active blocks       | `blocks: string[]`     |
+| `memory_delete_block`  | Remove block            | `name`                 |
 
 ### Session Operations
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `memory_set_mode` | Set session mode | `mode: 'create'\|'load'\|'edit'` |
-| `memory_save_session` | Save CCL session | `block`, `topic`, `content` |
-| `memory_load_sessions` | Load sessions | `block`, `filter?` |
-| `memory_list_sessions` | List session metadata | `block` |
+| Tool                   | Description           | Parameters                       |
+| ---------------------- | --------------------- | -------------------------------- |
+| `memory_set_mode`      | Set session mode      | `mode: 'create'\|'load'\|'edit'` |
+| `memory_save_session`  | Save CCL session      | `block`, `topic`, `content`      |
+| `memory_load_sessions` | Load sessions         | `block`, `filter?`               |
+| `memory_list_sessions` | List session metadata | `block`                          |
 
 ### Session Filters
 
@@ -203,11 +239,11 @@ Add to `.vscode/mcp.json`:
 
 ```typescript
 // Initialize block
-memory_create_block({name: "auth-service"})
-memory_select_blocks({blocks: ["auth-service"]})
+memory_create_block({ name: "auth-service" });
+memory_select_blocks({ blocks: ["auth-service"] });
 
 // Start session
-memory_set_mode({mode: "create"})
+memory_set_mode({ mode: "create" });
 
 // After conversation work...
 memory_save_session({
@@ -220,15 +256,15 @@ memory_save_session({
 > src/auth/jwt.ts | Added rotateRefreshToken()
 ? Need to handle concurrent refresh requests?
 CONTEXT: Mobile clients may retry failed refreshes
-`
-})
+`,
+});
 
 // Later session - load relevant history
-memory_set_mode({mode: "load"})
+memory_set_mode({ mode: "load" });
 memory_load_sessions({
   block: "auth-service",
-  filter: "topic:JWT"
-})
+  filter: "topic:JWT",
+});
 ```
 
 ## Technical Specifications
@@ -243,13 +279,13 @@ memory_load_sessions({
 
 ### Performance Metrics
 
-| Metric | Value |
-|--------|-------|
-| Average session size | 200-400 tokens |
-| Compression ratio | 76% vs natural language |
-| Lazy load overhead | < 50ms per session |
-| Index lookup time | < 10ms |
-| Memory footprint | < 5MB per 100 sessions |
+| Metric               | Value                   |
+| -------------------- | ----------------------- |
+| Average session size | 200-400 tokens          |
+| Compression ratio    | 76% vs natural language |
+| Lazy load overhead   | < 50ms per session      |
+| Index lookup time    | < 10ms                  |
+| Memory footprint     | < 5MB per 100 sessions  |
 
 ### File Structure
 
