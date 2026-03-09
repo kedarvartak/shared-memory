@@ -2,22 +2,16 @@
 
 Persistent, cross-session AI memory architecture using Compressed Conversation Logs (CCL) and multi-block organization for scalable, token-efficient context management.
 
-## Architecture Overview
+## Overview
 
-### Session Mode Workflow
-
-![Session Mode Workflow](https://via.placeholder.com/600x400.png?text=Session+Mode+Workflow)
-
+### Session Mode 
 The system operates in three distinct modes:
 
 - **CREATE**: Initialize new conversation sessions with write access
 - **LOAD**: Browse existing sessions in read-only mode for reference
 - **EDIT**: Modify and update existing session logs
 
-### CCL Architecture
-
-![CCL Architecture](https://via.placeholder.com/600x600.png?text=CCL+Architecture)
-
+### CCL - Compressed Conversation Log
 Conversation data flows through a compression pipeline:
 
 1. AI conversation produces raw messages
@@ -26,10 +20,7 @@ Conversation data flows through a compression pipeline:
 4. CCL Loader selectively loads relevant sessions
 5. Token-efficient context feeds back to AI
 
-### Multi-Block Memory Architecture
-
-![Multi-Block Memory](https://via.placeholder.com/600x400.png?text=Multi-Block+Architecture)
-
+### Multi-Block Memory 
 Memory blocks provide isolated contexts for different projects, services, or features. Blocks can be selected independently or combined for cross-cutting workflows.
 
 ## Comparison with Standard Approaches
